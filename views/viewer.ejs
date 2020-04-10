@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Floorplan Editor</title>
+    <link rel='stylesheet' href='/stylesheets/canvas.css' />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/3.6.2/fabric.min.js"></script>
+    <script src="/javascripts/shape.js"></script>
+    <script>
+        $(document).ready(function(){
+
+            // init selected
+            let selectedRoom = null;
+            let selectedNode = null;
+
+            // start showing rooms
+            let showRooms = true;
+
+            // all current rooms and nodes
+            let rooms = [];
+            let nodes = [];
+
+            // room selection callback
+            let roomSelectedCallback = function(newRoom) {
+                if (selectedRoom) {
+                    selectedRoom.roomDeselected();
+                } else if (selectedNode) {
+                    selectedNode.nodeDeselected();
+                    selectedNode = null;
+                }
+                selectedRoom = newRoom;
+            };
+
+            // node selection callback
+            let nodeSelectedCallback = function(newNode) {
+                if (selectedRoom) {
+                    selectedRoom.roomDeselected();
+                    selectedRoom = null;
+                } else if (selectedNode) {
+                    selectedNode.nodeDeselected();
+                }
+                selectedNode = newNode;
+            };
+
+            // button click handler to populate heatmap with AWS data
+            $('#populate-button').click(function() {
+                if (rooms.length > 0) {
+                    $.get('/cloud/rpop', function (data) {
+                        if (data) {
+                            let mapped = {}
+                            for (let idx in data) {
+                                mapped[parseInt(data[idx].RoomID)] = parseInt(data[idx].Population);
+                            }
+                            for (let idx in rooms) {
+                                if (rooms[idx].roomId in mapped) {
+                                    rooms[idx].colorFromAWS(mapped[rooms[idx].roomId]);
+                                }
+                            }
+                            canvas.renderAll();
+                        }
+                    });
+                }
+
+                if (nodes.length > 0) {
+                    $.get('/cloud/nlu', function(data) {
+                        if (data) {
+                            let mapped = {}
+                            for (let idx in data) {
+                                mapped[parseInt(data[idx].NodeID)] = parseInt(data[idx].LastUpdated);
+                            }
+                            for (let idx in nodes) {
+                                if (nodes[idx].nodeId in mapped) {
+                                    nodes[idx].colorFromAWS(mapped[nodes[idx].nodeId]);
+                                }
+                            }
+                            canvas.renderAll();
+                        }
+                    });
+                }
+            });
+
+            // button to load a floorplan to the canvas
+            $('#load-button').click(function() {
+                let $inputName = $('#floorplan-name');
+                if ($inputName.val() === '') {
+                    return;
+                }
+
+                let name = $inputName.val();
+                $inputName.val('');
+
+                // reset data
+                rooms = [];
+                nodes = [];
+                selectedRoom = null;
+                selectedNode = null;
+
+                if (!showRooms) {
+                    $('#swap-button').click();
+                }
+                $('#rooms').empty();
+                $('#nodes').empty();
+
+                $.get('/cloud/fget', { name: name }, function (data) {
+                    canvas.loadFromJSON(data[0].JSON, canvas.renderAll.bind(canvas));
+                });
+            });
+
+            // swaps between displaying rooms and nodes
+            $('#swap-button').click(function () {
+                if (showRooms) {
+                    $('#rooms').hide();
+                    $('#nodes').show();
+                    $('#swap-button').text('Show Rooms');
+                } else {
+                    $('#rooms').show();
+                    $('#nodes').hide();
+                    $('#swap-button').text('Show Nodes');
+                }
+                showRooms = !showRooms;
+            });
+
+            // init canvas
+            let canvas = new fabric.Canvas('c');
+            canvas.setWidth($(window).width() - 20);
+
+            // update line suggestion
+            canvas.on('mouse:move', function (params) {
+                canvas.renderAll();
+            });
+
+            // handles object creation on load
+            canvas.on('object:added', function (object) {
+                if (object.target.type === 'RoomShape') {
+
+                    let room = object.target;
+
+                    room.linkSelectCallback(roomSelectedCallback);
+                    rooms.push(room);
+
+                    room.set({ lockMovementX: true});
+                    room.set({ lockMovementY: true});
+                    room.set({ id: rooms.length });
+
+                    let roomSelectId = 'room' + room.id + 'select';
+                    let roomIdInput = 'room' + room.id + 'input';
+                    let roomIdButton = 'room' + room.id + 'button';
+                    $("#rooms").append(`
+                        <div>
+                            <button id="${roomSelectId}">Select Room ${room.id}</button>
+                            <input type="number" id="${roomIdInput}">
+                            <button id="${roomIdButton}">Update Room ID</button>
+                        </div>
+                    `);
+                    $("#" + roomSelectId).click(function () {
+                        if (selectedRoom === room) {
+                            return;
+                        }
+                        room.roomSelected();
+                        canvas.renderAll();
+                    });
+                    $("#" + roomIdButton).click(function () {
+                        let $inputId = $('#' + roomIdInput);
+                        if ($inputId.val() === '') {
+                            return;
+                        }
+
+                        let roomId = $inputId.val();
+                        $inputId.val('');
+
+                        room.set({ roomId: roomId });
+                        canvas.renderAll();
+                    });
+                } else if (object.target.type === 'NodeShape') {
+
+                    let node = object.target;
+
+                    node.linkSelectCallback(nodeSelectedCallback);
+                    nodes.push(node);
+
+                    node.set({ lockMovementX: true})
+                    node.set({ lockMovementY: true})
+                    node.set({ id: nodes.length });
+                    node.bringToFront();
+
+                    let nodeSelectId = 'node' + node.id + 'select';
+                    let nodeIdInput = 'node' + node.id + 'input';
+                    let nodeIdButton = 'node' + node.id + 'button';
+                    $("#nodes").append(`
+                        <div>
+                            <button id="${nodeSelectId}">Select Node ${node.id}</button>
+                            <input type="number" id="${nodeIdInput}">
+                            <button id="${nodeIdButton}">Update Node ID</button>
+                        </div>
+                    `);
+                    $("#" + nodeSelectId).click(function () {
+                        if (selectedNode === node) {
+                            return;
+                        }
+                        node.nodeSelected();
+                        canvas.renderAll();
+                    });
+                    $("#" + nodeIdButton).click(function () {
+                        let $inputId = $('#' + nodeIdInput);
+                        if ($inputId.val() === '') {
+                            return;
+                        }
+
+                        let nodeId = $inputId.val();
+                        $inputId.val('');
+
+                        node.set({ nodeId: nodeId });
+                        canvas.renderAll();
+                    });
+                }
+            });
+
+            // updates info from AWS
+            setInterval(function() { $('#populate-button').click(); }, 10000);
+        });
+    </script>
+</head>
+<body>
+<button id="populate-button">Populate</button><br/>
+<input type="text" id="floorplan-name">
+<button id="load-button">Load Floorplan</button>
+<div class="section no-pad-bot no-pad-top">
+    <canvas id="c" width="1000" height="1000" style="border:1px solid #000000"></canvas>
+</div>
+<button id="swap-button">Show Nodes</button>
+<div id="rooms"></div>
+<div id="nodes" hidden></div>
+
+</body>
+</html>

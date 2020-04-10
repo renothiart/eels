@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Floorplan Editor</title>
+    <link rel='stylesheet' href='/stylesheets/canvas.css' />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/3.6.2/fabric.min.js"></script>
+    <script src="/javascripts/shape.js"></script>
+    <script>
+        $(document).ready(function(){
+
+            // initialize variables
+            const min = 99;
+            const max = 999999;
+
+            let roomMode = false;
+            let nodeMode = false;
+
+            let selected = null;
+
+            let rooms = [];
+            let nodes = [];
+
+            let pointArray = [];
+            let lineArray = [];
+            let activeLine;
+            let activeShape = false;
+
+            // Defines a room polygon
+            let Room = {
+
+                // starts drawing a room
+                drawRoom : function() {
+                    roomMode = true;
+                    pointArray = [];
+                    lineArray = [];
+                    activeLine;
+                },
+
+                // adds a single point to the room
+                addPoint : function(params) {
+                    // choose random id for the point
+                    let random = Math.floor(Math.random() * (max - min + 1)) + min;
+                    let id = new Date().getTime() + random;
+
+                    // create point
+                    let point = new fabric.Circle({
+                        radius: 5,
+                        fill: '#ffffff',
+                        stroke: '#333333',
+                        strokeWidth: 0.5,
+                        left: (params.e.layerX/canvas.getZoom()),
+                        top: (params.e.layerY/canvas.getZoom()),
+                        selectable: false,
+                        hasBorders: false,
+                        hasControls: false,
+                        originX:'center',
+                        originY:'center',
+                        id:id,
+                        objectCaching:false
+                    });
+
+                    // if first point, color green
+                    if (pointArray.length === 0){
+                        point.set({
+                            fill:'green'
+                        });
+                    }
+
+                    // create line to next point
+                    let points = [
+                        (params.e.layerX/canvas.getZoom()),
+                        (params.e.layerY/canvas.getZoom()),
+                        (params.e.layerX/canvas.getZoom()),
+                        (params.e.layerY/canvas.getZoom())];
+                    line = new fabric.Line(points, {
+                        strokeWidth: 2,
+                        fill: '#999999',
+                        stroke: '#999999',
+                        class:'line',
+                        originX:'center',
+                        originY:'center',
+                        selectable: false,
+                        hasBorders: false,
+                        hasControls: false,
+                        evented: false,
+                        objectCaching:false
+                    });
+
+                    // if shape exists already, update, ow create
+                    if (activeShape){
+                        let pos = canvas.getPointer(params.e);
+                        points = activeShape.get("points");
+                        points.push({
+                            x: pos.x,
+                            y: pos.y
+                        });
+                        let polygon = new fabric.Polygon(points, {
+                            stroke:'#333333',
+                            strokeWidth:1,
+                            fill: '#cccccc',
+                            opacity: 0.3,
+                            selectable: false,
+                            hasBorders: false,
+                            hasControls: false,
+                            evented: false,
+                            objectCaching:false
+                        });
+                        canvas.remove(activeShape);
+                        canvas.add(polygon);
+                        activeShape = polygon;
+                        canvas.renderAll();
+                    } else {
+                        let polyPoint = [{
+                            x : (params.e.layerX/canvas.getZoom()),
+                            y : (params.e.layerY/canvas.getZoom())
+                        }];
+                        let polygon = new fabric.Polygon(polyPoint, {
+                            stroke:'#333333',
+                            strokeWidth:1,
+                            fill: '#cccccc',
+                            opacity: 0.3,
+                            selectable: false,
+                            hasBorders: false,
+                            hasControls: false,
+                            evented: false,
+                            objectCaching:false
+                        });
+                        activeShape = polygon;
+                        canvas.add(polygon);
+                    }
+                    activeLine = line;
+
+                    pointArray.push(point);
+                    lineArray.push(line);
+
+                    canvas.add(line);
+                    canvas.add(point);
+                    canvas.selection = false;
+                },
+
+                // finishes room creation if in progress
+                generateRoom : function(pointArray){
+                    let points = [];
+                    $.each(pointArray, function(index, point) {
+                        points.push({
+                            x : point.left,
+                            y : point.top
+                        });
+                        canvas.remove(point);
+                    });
+                    $.each(lineArray, function(index, line) {
+                        canvas.remove(line);
+                    });
+                    canvas.remove(activeShape).remove(activeLine);
+                    let room = new RoomShape(points, function() {}, {
+                        stroke:'#333333',
+                        strokeWidth:0.5,
+                        fill: 'blue',
+                        opacity: 0.2,
+                        hasBorders: false,
+                        hasControls: false,
+                        perPixelTargetFind: true,
+                        id: "room" + rooms.length
+                    });
+                    // room.on('mouseover', function(params) {
+                    //     if (selected === room) {
+                    //         return;
+                    //     }
+                    //     room.set({ opacity: room.get("opacity") * 2 });
+                    //     canvas.renderAll();
+                    // });
+                    // room.on('mouseout', function(params) {
+                    //     if (selected === room) {
+                    //         return;
+                    //     }
+                    //     room.set({ opacity: room.get("opacity") * 0.5 });
+                    //     canvas.renderAll();
+                    // });
+                    // room.on('mousedown', function(params) {
+                    //     if (selected === room) {
+                    //         return;
+                    //     } else if (selected !== null) {
+                    //         selected.set({ opacity: selected.get("opacity") * 0.5 });
+                    //     }
+                    //     selected = room;
+                    //     canvas.renderAll();
+                    // });
+                    rooms.push(room);
+                    canvas.add(room);
+
+                    $("#room-list").append("<li><button id='" + room.id + "button'>Room " + room.id + "</button></li>");
+                    $("#" + room.id + "button").click(function () {
+                        if (selected === room) {
+                            return;
+                        } else if (selected != null) {
+                            selected.set({ opacity: selected.get("opacity") * 0.5 });
+                        }
+                        selected = room;
+                        selected.set({ opacity: selected.get("opacity") * 2 });
+                        canvas.renderAll();
+                    });
+
+                    activeLine = null;
+                    activeShape = null;
+                    roomMode = false;
+                    canvas.selection = true;
+                }
+            };
+
+            let Node = {
+                drawNode : function() {
+                    nodeMode = true;
+                },
+
+                generateNode : function(params) {
+                    // choose random id for the point
+                    let random = Math.floor(Math.random() * (max - min + 1)) + min;
+                    let id = new Date().getTime() + random;
+
+                    let node = new fabric.Circle({
+                        radius: 10,
+                        fill: 'blue',
+                        stroke: 'red',
+                        strokeWidth: 0.5,
+                        opacity: 0.75,
+                        left: (params.e.layerX/canvas.getZoom()),
+                        top: (params.e.layerY/canvas.getZoom()),
+                        selectable: true,
+                        hasBorders: false,
+                        hasControls: false, // whether resizable
+                        originX:'center',
+                        originY:'center',
+                        id:id
+                    });
+                    nodes.push(node);
+                    canvas.add(node);
+                    nodeMode = false;
+                }
+            };
+
+            // set up buttons
+            $('#room-button').click(function() {
+                Room.drawRoom();
+                nodeMode = false;
+            });
+
+            $('#node-button').click(function() {
+                Node.drawNode();
+                roomMode = false;
+            });
+
+            $('#name-submit').click(function () {
+                let input = $('#name-input');
+                if (selected !== null && input.val() !== "") {
+                    selected.set({ awsID: input.val() });
+                    input.val("");
+                    $('#' + selected.id + 'button').text(selected.get('awsID'));
+                }
+            });
+
+            // init canvas
+            let canvas = new fabric.Canvas('c');
+            canvas.setWidth($(window).width() - 20);
+
+            canvas.on('mouse:move', function (options) {
+                canvas.requestRenderAll();
+            });
+
+            // draw room
+            canvas.on('mouse:down', function (params) {
+                if(params.target && pointArray[0] && params.target.id === pointArray[0].id){
+                    Room.generateRoom(pointArray);
+                }
+
+                if (roomMode) {
+                    Room.addPoint(params);
+                } else if (nodeMode) {
+                    Node.generateNode(params);
+                }
+            });
+
+            // update line suggestion
+            canvas.on('mouse:move', function (params) {
+                if (activeLine && activeLine.class ==="line") {
+                    let pointer = canvas.getPointer(params.e);
+                    activeLine.set({
+                        x2: pointer.x,
+                        y2 : pointer.y
+                    });
+
+                    let points = activeShape.get("points");
+                    points[pointArray.length] = {
+                        x: pointer.x,
+                        y: pointer.y
+                    }
+                    activeShape.set({
+                        points: points
+                    });
+                    canvas.renderAll();
+                }
+                canvas.requestRenderAll()
+            });
+
+            // load base floorplan
+            let floorplan = new fabric.Image($('#floorplan')[0], {
+                left: 100,
+                top: 100,
+                angle: 0,
+                scale: 0.3,
+                opacity: 1,
+                selectable: false,
+                evented: false
+            })
+            canvas.add(floorplan);
+
+            // upload images
+            $('#file')[0].addEventListener('change', function (e) {
+                let file = e.target.files[0];
+                let reader = new FileReader();
+                reader.onload = function (f) {
+                    let data = f.target.result;
+                    fabric.Image.fromURL(data, function (img) {
+                        let oImg = img.set({left: 0, top: 0, angle: 0, maxWidth: 500, maxHeight: 500}).scale(0.5);
+                        canvas.add(oImg).renderAll();
+                        canvas.setActiveObject(oImg);
+                        canvas.toDataURL({format: 'png', quality: 0.8});
+                    });
+                };
+                reader.readAsDataURL(file);
+            });
+
+            $.get('/cloud/rpop', function(data) {
+
+            });
+
+            // updates info from AWS
+            setInterval(function() {}, 3000);
+        });
+    </script>
+</head>
+<body>
+<button id="room-button">Add room</button>
+<button id="node-button">Add node</button>
+<div class="section no-pad-bot no-pad-top">
+    <canvas id="c" width="1000" height="1000" style="border:1px solid #000000"></canvas>
+    <input type="file" id="file"><br />
+    <img src="/images/condo-floorplan.png" id="floorplan" style="display: none">
+</div>
+
+<label for="name-input">Enter AWS ID: </label>
+<input type="text" id="name-input"/><br />
+<button id="name-submit">Submit</button>
+
+<ul id="room-list"></ul>
+
+</body>
+</html>
